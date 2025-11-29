@@ -1,0 +1,56 @@
+defmodule B4 do
+  alias B4.Keydir
+
+  def new(directory, options \\ [target_file_size: 2 ** 31]) do
+    case B4.DatabasesSupervisor.start_database(directory, options) do
+      {:ok, _pid} -> :ok
+      other -> other
+    end
+  end
+
+  def insert_sync(directory, key, value) do
+    B4.Writer.insert_sync(directory, key, value)
+  end
+
+  def fetch_sync(directory, key) do
+    tid = B4.KeydirOwner.get_keydir_tid(directory)
+
+    case Keydir.fetch(tid, key) do
+      {:ok, {^key, file_id, entry_size, file_position, _entry_id}} ->
+        path = Path.join([directory, "#{file_id}.b4"])
+        {:ok, file} = :file.open(path, [:binary, :raw, :read])
+
+        {:ok,
+         <<
+           header_bytes::binary-28,
+           rest::binary
+         >>} = :file.pread(file, file_position, entry_size)
+
+        <<disk_crc32::integer-big-32, rest_of_header_bytes::binary-24>> =
+          header_bytes
+
+        <<_id::integer-big-128, key_size::integer-big-32, value_size::integer-big-32>> =
+          rest_of_header_bytes
+
+        <<key_bytes::bytes-size(key_size), value_bytes::bytes-size(value_size)>> = rest
+
+        challenge_crc32 =
+          :erlang.crc32([rest_of_header_bytes, key_bytes, value_bytes])
+
+        ^disk_crc32 = challenge_crc32
+
+        {:ok, :erlang.binary_to_term(value_bytes)}
+
+      :error ->
+        :error
+    end
+  end
+
+  def delete_sync(directory, key) do
+    B4.Writer.delete_sync(directory, key)
+  end
+
+  def close(directory) do
+    B4.DatabaseSupervisor.stop(directory)
+  end
+end

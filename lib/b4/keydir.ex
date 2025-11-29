@@ -1,0 +1,23 @@
+defmodule B4.Keydir do
+  def insert(tid, key, file_id, entry_size, file_position, entry_id)
+      when is_integer(entry_size) and is_integer(file_position) do
+    :ets.insert(
+      tid,
+      {key, file_id, entry_size, file_position, entry_id}
+    )
+  end
+
+  def fetch(tid, key) do
+    case :ets.lookup(tid, key) do
+      [{^key, _file_id, _entry_size, _file_position, _entry_id} = mapping] ->
+        {:ok, mapping}
+
+      [] ->
+        :error
+    end
+  end
+
+  def delete(tid, key) do
+    :ets.delete(tid, key)
+  end
+end
