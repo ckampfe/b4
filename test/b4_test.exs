@@ -59,11 +59,12 @@ defmodule B4Test do
     assert :ok = B4.new(dir)
     assert :ok = B4.insert_sync(dir, "e", "f")
     assert {:ok, "f"} = B4.fetch_sync(dir, "e")
+    assert :error = B4.fetch_sync(dir, "c")
     assert :ok = B4.close(dir)
 
     assert :ok = B4.new(dir)
     assert {:ok, "b"} = B4.fetch_sync(dir, "a")
-    assert {:ok, "d"} = B4.fetch_sync(dir, "c")
+    assert :error = B4.fetch_sync(dir, "c")
     assert {:ok, "f"} = B4.fetch_sync(dir, "e")
   end
 
@@ -102,5 +103,22 @@ defmodule B4Test do
              %{size: size} = File.stat!(Path.join([dir, path]))
              size >= target_file_size
            end)
+  end
+
+  test "keys", %{dir: dir} do
+    assert :ok = B4.new(dir)
+    assert [] = B4.keys(dir)
+
+    assert :ok = B4.insert_sync(dir, "a", "b")
+    assert ["a"] = B4.keys(dir)
+
+    assert :ok = B4.insert_sync(dir, "c", "d")
+    assert ["a", "c"] = Enum.sort(B4.keys(dir))
+
+    assert :ok = B4.delete_sync(dir, "a")
+    assert ["c"] = Enum.sort(B4.keys(dir))
+
+    assert :ok = B4.delete_sync(dir, "c")
+    assert [] = Enum.sort(B4.keys(dir))
   end
 end

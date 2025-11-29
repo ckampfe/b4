@@ -1,19 +1,19 @@
 defmodule B4 do
-  alias B4.Keydir
+  alias B4.{DatabaseSupervisor, DatabasesSupervisor, Keydir, KeydirOwner, Writer}
 
   def new(directory, options \\ [target_file_size: 2 ** 31]) do
-    case B4.DatabasesSupervisor.start_database(directory, options) do
+    case DatabasesSupervisor.start_database(directory, options) do
       {:ok, _pid} -> :ok
       other -> other
     end
   end
 
   def insert_sync(directory, key, value) do
-    B4.Writer.insert_sync(directory, key, value)
+    Writer.insert_sync(directory, key, value)
   end
 
   def fetch_sync(directory, key) do
-    tid = B4.KeydirOwner.get_keydir_tid(directory)
+    tid = KeydirOwner.get_keydir_tid(directory)
 
     case Keydir.fetch(tid, key) do
       {:ok, {^key, file_id, entry_size, file_position, _entry_id}} ->
@@ -47,10 +47,15 @@ defmodule B4 do
   end
 
   def delete_sync(directory, key) do
-    B4.Writer.delete_sync(directory, key)
+    Writer.delete_sync(directory, key)
+  end
+
+  def keys(directory) do
+    tid = KeydirOwner.get_keydir_tid(directory)
+    Keydir.keys(tid)
   end
 
   def close(directory) do
-    B4.DatabaseSupervisor.stop(directory)
+    DatabaseSupervisor.stop(directory)
   end
 end

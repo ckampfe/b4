@@ -1,6 +1,6 @@
 defmodule B4.Writer do
   use GenServer
-  alias B4.Keydir
+  alias B4.{Keydir, KeydirOwner}
 
   defmodule State do
     @enforce_keys [:directory, :tid, :write_file, :file_id, :file_position, :target_file_size]
@@ -25,7 +25,7 @@ defmodule B4.Writer do
   def init(%{directory: directory, options: [target_file_size: target_file_size]}) do
     {:ok, %{write_file: write_file, file_id: file_id}} = new_write_file(directory)
 
-    tid = B4.KeydirOwner.get_keydir_tid(directory)
+    tid = KeydirOwner.get_keydir_tid(directory)
 
     {:ok,
      %State{
@@ -91,19 +91,35 @@ defmodule B4.Writer do
 
     true = Keydir.insert(tid, key, file_id, entry_size, file_position, entry_id)
 
-    {:reply, :ok, %{state | file_position: state.file_position + entry_size}}
+    {:reply, :ok,
+     %{state | file_position: state.file_position + entry_size, write_file: write_file}}
   end
 
   def handle_call(
         {:delete, key},
         _from,
-        %State{tid: tid, write_file: write_file} =
+        %State{
+          directory: directory,
+          tid: tid,
+          write_file: write_file,
+          file_position: file_position,
+          file_id: file_id,
+          target_file_size: target_file_size
+        } =
           state
       ) do
+    {:ok, %{write_file: write_file, file_id: file_id}} =
+      if file_position >= target_file_size do
+        {:ok, ret} = new_write_file(directory)
+        {:ok, Map.put(ret, :file_position, 0)}
+      else
+        {:ok, %{write_file: write_file, file_id: file_id, file_position: file_position}}
+      end
+
     entry_id = UUIDv7.bingenerate()
 
     serialized_key = :erlang.term_to_binary(key)
-    serialized_value = :erlang.term_to_binary(:__b4_delete)
+    serialized_value = :erlang.term_to_binary(delete_value())
 
     key_size = size_as_u32_bytes(serialized_key)
     value_size = size_as_u32_bytes(serialized_value)
@@ -123,7 +139,13 @@ defmodule B4.Writer do
 
     Keydir.delete(tid, key)
 
-    {:reply, :ok, %{state | file_position: state.file_position + entry_size}}
+    {:reply, :ok,
+     %{
+       state
+       | file_position: state.file_position + entry_size,
+         file_id: file_id,
+         write_file: write_file
+     }}
   end
 
   def latest_b4_file_id(directory) do
@@ -136,6 +158,10 @@ defmodule B4.Writer do
       i
     end)
     |> Enum.max(fn -> 0 end)
+  end
+
+  def delete_value do
+    :__b4_delete
   end
 
   def size_as_u32_bytes(bytes) when is_binary(bytes) do

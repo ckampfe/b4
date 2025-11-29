@@ -17,6 +17,12 @@ defmodule B4.Keydir do
     end
   end
 
+  def keys(tid) do
+    tid
+    |> :ets.match({:"$1", :_, :_, :_, :_})
+    |> Enum.map(fn [k] -> k end)
+  end
+
   def delete(tid, key) do
     :ets.delete(tid, key)
   end

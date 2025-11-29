@@ -1,5 +1,6 @@
 defmodule B4.DatabasesSupervisor do
   use DynamicSupervisor
+  alias B4.DatabaseSupervisor
 
   def start_link(init_arg) do
     DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
@@ -8,7 +9,7 @@ defmodule B4.DatabasesSupervisor do
   def start_database(directory, options) do
     DynamicSupervisor.start_child(
       __MODULE__,
-      {B4.DatabaseSupervisor, %{directory: directory, options: options}}
+      {DatabaseSupervisor, %{directory: directory, options: options}}
     )
   end
 

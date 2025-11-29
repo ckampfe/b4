@@ -1,11 +1,12 @@
 defmodule B4.KeydirOwner do
   use GenServer
 
-  alias B4.Keydir
+  alias B4.{Keydir, Writer}
 
   # crc32 + u128 UUIDv7 + u32 key_size + u32 value_size
   @header_size 4 + 16 + 4 + 4
   @nominal_chunk_size 2 ** 13
+  @delete_value Writer.delete_value()
 
   defmodule State do
     @enforce_keys [:tid]
@@ -78,8 +79,9 @@ defmodule B4.KeydirOwner do
         file_position
       ) do
     case :erlang.binary_to_term(value_bytes) do
-      :__b4_delete ->
-        # it's a delete, don't do anything, just skip it
+      # it's a delete, remove it from the keydir
+      @delete_value ->
+        Keydir.delete(tid, :erlang.binary_to_term(key_bytes))
 
         apply_chunk_to_keydir(
           rest,
@@ -89,7 +91,7 @@ defmodule B4.KeydirOwner do
         )
 
       # it's not a delete, decode the key and insert into keydir
-      _ ->
+      _insert_value ->
         key = :erlang.binary_to_term(key_bytes)
         {file_id, _} = Integer.parse(Path.basename(path, ".b4"))
 
