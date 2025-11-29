@@ -25,13 +25,7 @@ defmodule B4.KeydirOwner do
 
   @impl GenServer
   def init(%{directory: directory} = _init_arg) do
-    tid =
-      :ets.new(:b4_table, [
-        :set,
-        :public,
-        read_concurrency: true,
-        write_concurrency: :auto
-      ])
+    tid = Keydir.new()
 
     :ok = :persistent_term.put({:tid, directory}, tid)
 

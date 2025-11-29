@@ -1,6 +1,15 @@
 defmodule B4.Keydir do
   @moduledoc false
 
+  def new do
+    :ets.new(:b4_table, [
+      :set,
+      :public,
+      read_concurrency: true,
+      write_concurrency: :auto
+    ])
+  end
+
   def insert(tid, key, file_id, entry_size, file_position, entry_id)
       when is_integer(entry_size) and is_integer(file_position) do
     :ets.insert(
