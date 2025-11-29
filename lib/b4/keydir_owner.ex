@@ -11,8 +11,8 @@ defmodule B4.KeydirOwner do
   @delete_value Writer.delete_value()
 
   defmodule State do
-    @enforce_keys [:tid]
-    defstruct [:tid]
+    @enforce_keys [:directory, :tid]
+    defstruct [:directory, :tid]
   end
 
   def start_link(%{directory: directory} = args) do
@@ -35,7 +35,7 @@ defmodule B4.KeydirOwner do
       apply_file_to_keydir(path, tid, @nominal_chunk_size)
     end)
 
-    {:ok, %State{tid: tid}}
+    {:ok, %State{directory: directory, tid: tid}}
   end
 
   def apply_file_to_keydir(path, tid, nominal_chunk_size) do
@@ -129,5 +129,10 @@ defmodule B4.KeydirOwner do
 
   def name(directory) do
     :"#{__MODULE__}-#{directory}"
+  end
+
+  @impl GenServer
+  def terminate(_reason, %State{directory: directory}) do
+    :persistent_term.erase({:tid, directory})
   end
 end
