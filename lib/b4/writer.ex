@@ -5,22 +5,40 @@ defmodule B4.Writer do
   alias B4.{Keydir, KeydirOwner}
 
   defmodule State do
-    @enforce_keys [:directory, :tid, :write_file, :file_id, :file_position, :target_file_size]
-    defstruct [:directory, :tid, :write_file, :file_id, :file_position, :target_file_size]
+    @enforce_keys [
+      :directory,
+      :tid,
+      :write_file,
+      :file_id,
+      :file_position,
+      :target_file_size,
+      :merge_in_progress?
+    ]
+    defstruct [
+      :directory,
+      :tid,
+      :write_file,
+      :file_id,
+      :file_position,
+      :target_file_size,
+      :merge_in_progress?
+    ]
   end
 
   def start_link(%{directory: directory} = args) do
     GenServer.start_link(__MODULE__, args, name: name(directory))
   end
 
-  def new_write_file(directory) do
-    latest_file_id = latest_b4_file_id(directory)
-    file_id = latest_file_id + 1
+  def insert_sync(directory, key, value) do
+    GenServer.call(name(directory), {:insert, key, value})
+  end
 
-    {:ok, write_file} =
-      :file.open(Path.join([directory, "#{file_id}.b4"]), [:binary, :raw, :append])
+  def delete_sync(directory, key) do
+    GenServer.call(name(directory), {:delete, key})
+  end
 
-    {:ok, %{write_file: write_file, file_id: file_id}}
+  def set_merge_in_progress(directory, merge_in_progress?) do
+    GenServer.call(name(directory), {:set_merge_in_progress, merge_in_progress?})
   end
 
   @impl GenServer
@@ -36,16 +54,9 @@ defmodule B4.Writer do
        write_file: write_file,
        file_id: file_id,
        file_position: 0,
-       target_file_size: target_file_size
+       target_file_size: target_file_size,
+       merge_in_progress?: false
      }}
-  end
-
-  def insert_sync(directory, key, value) do
-    GenServer.call(name(directory), {:insert, key, value})
-  end
-
-  def delete_sync(directory, key) do
-    GenServer.call(name(directory), {:delete, key})
   end
 
   @impl GenServer
@@ -58,12 +69,13 @@ defmodule B4.Writer do
           write_file: write_file,
           file_id: file_id,
           file_position: file_position,
-          target_file_size: target_file_size
+          target_file_size: target_file_size,
+          merge_in_progress?: merge_in_progress?
         } =
           state
       ) do
     {:ok, %{write_file: write_file, file_id: file_id}} =
-      if file_position >= target_file_size do
+      if !merge_in_progress? && file_position >= target_file_size do
         {:ok, ret} = new_write_file(directory)
         {:ok, Map.put(ret, :file_position, 0)}
       else
@@ -106,12 +118,13 @@ defmodule B4.Writer do
           write_file: write_file,
           file_position: file_position,
           file_id: file_id,
-          target_file_size: target_file_size
+          target_file_size: target_file_size,
+          merge_in_progress?: merge_in_progress?
         } =
           state
       ) do
     {:ok, %{write_file: write_file, file_id: file_id}} =
-      if file_position >= target_file_size do
+      if !merge_in_progress? && file_position >= target_file_size do
         {:ok, ret} = new_write_file(directory)
         {:ok, Map.put(ret, :file_position, 0)}
       else
@@ -148,6 +161,20 @@ defmodule B4.Writer do
          file_id: file_id,
          write_file: write_file
      }}
+  end
+
+  def handle_call({:set_merge_in_progress, merge_in_progress?}, _from, state) do
+    {:reply, :ok, %{state | merge_in_progress?: merge_in_progress?}}
+  end
+
+  def new_write_file(directory) do
+    latest_file_id = latest_b4_file_id(directory)
+    file_id = latest_file_id + 1
+
+    {:ok, write_file} =
+      :file.open(Path.join([directory, "#{file_id}.b4"]), [:binary, :raw, :append])
+
+    {:ok, %{write_file: write_file, file_id: file_id}}
   end
 
   def latest_b4_file_id(directory) do
