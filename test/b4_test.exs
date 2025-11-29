@@ -53,18 +53,18 @@ defmodule B4Test do
     assert :ok = B4.insert(dir, "c", "d")
     assert {:ok, "d"} = B4.fetch(dir, "c")
     assert :ok = B4.delete(dir, "c")
-    assert :error = B4.fetch(dir, "c")
+    assert :not_found = B4.fetch(dir, "c")
     assert :ok = B4.close(dir)
 
     assert :ok = B4.new(dir)
     assert :ok = B4.insert(dir, "e", "f")
     assert {:ok, "f"} = B4.fetch(dir, "e")
-    assert :error = B4.fetch(dir, "c")
+    assert :not_found = B4.fetch(dir, "c")
     assert :ok = B4.close(dir)
 
     assert :ok = B4.new(dir)
     assert {:ok, "b"} = B4.fetch(dir, "a")
-    assert :error = B4.fetch(dir, "c")
+    assert :not_found = B4.fetch(dir, "c")
     assert {:ok, "f"} = B4.fetch(dir, "e")
   end
 

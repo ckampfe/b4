@@ -15,35 +15,62 @@ defmodule B4 do
   def fetch(directory, key) do
     tid = KeydirOwner.get_keydir_tid(directory)
 
-    case Keydir.fetch(tid, key) do
-      {:ok, {^key, file_id, entry_size, file_position, _entry_id}} ->
-        path = Path.join([directory, "#{file_id}.b4"])
-        {:ok, file} = :file.open(path, [:binary, :raw, :read])
-
-        {:ok,
-         <<
-           header_bytes::binary-28,
-           rest::binary
-         >>} = :file.pread(file, file_position, entry_size)
-
-        <<disk_crc32::integer-big-32, rest_of_header_bytes::binary-24>> =
-          header_bytes
-
-        <<_id::integer-big-128, key_size::integer-big-32, value_size::integer-big-32>> =
-          rest_of_header_bytes
-
-        <<key_bytes::bytes-size(key_size), value_bytes::bytes-size(value_size)>> = rest
-
-        challenge_crc32 =
-          :erlang.crc32([rest_of_header_bytes, key_bytes, value_bytes])
-
-        ^disk_crc32 = challenge_crc32
-
+    with {_, {:ok, {^key, file_id, entry_size, file_position, _entry_id}}} <-
+           {:keydir_fetch, Keydir.fetch(tid, key)},
+         path = Path.join([directory, "#{file_id}.b4"]),
+         {:ok, file} <- :file.open(path, [:binary, :raw, :read]),
+         {:ok,
+          <<
+            header_bytes::binary-28,
+            rest::binary
+          >>} <- :file.pread(file, file_position, entry_size),
+         <<disk_crc32::integer-big-32, rest_of_header_bytes::binary-24>> =
+           header_bytes,
+         <<_id::integer-big-128, key_size::integer-big-32, value_size::integer-big-32>> =
+           rest_of_header_bytes,
+         <<key_bytes::bytes-size(key_size), value_bytes::bytes-size(value_size)>> = rest,
+         challenge_crc32 =
+           :erlang.crc32([rest_of_header_bytes, key_bytes, value_bytes]) do
+      if disk_crc32 == challenge_crc32 do
         {:ok, :erlang.binary_to_term(value_bytes)}
-
-      :error ->
-        :error
+      else
+        {:error, :crc32_bad_match}
+      end
+    else
+      {:keydir_fetch, :error} -> :not_found
+      e -> e
     end
+
+    # case Keydir.fetch(tid, key) do
+    #   {:ok, {^key, file_id, entry_size, file_position, _entry_id}} ->
+    #     path = Path.join([directory, "#{file_id}.b4"])
+
+    #     {:ok, file} = :file.open(path, [:binary, :raw, :read])
+
+    #     {:ok,
+    #      <<
+    #        header_bytes::binary-28,
+    #        rest::binary
+    #      >>} = :file.pread(file, file_position, entry_size)
+
+    # <<disk_crc32::integer-big-32, rest_of_header_bytes::binary-24>> =
+    #   header_bytes
+
+    # <<_id::integer-big-128, key_size::integer-big-32, value_size::integer-big-32>> =
+    #   rest_of_header_bytes
+
+    # <<key_bytes::bytes-size(key_size), value_bytes::bytes-size(value_size)>> = rest
+
+    # challenge_crc32 =
+    #   :erlang.crc32([rest_of_header_bytes, key_bytes, value_bytes])
+
+    # ^disk_crc32 = challenge_crc32
+
+    #   {:ok, :erlang.binary_to_term(value_bytes)}
+
+    # :error ->
+    #   :error
+    # end
   end
 
   def delete(directory, key) do
