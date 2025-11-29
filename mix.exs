@@ -23,7 +23,7 @@ defmodule B4.MixProject do
   defp deps do
     [
       {:temp, "~> 0.4.9", only: :test},
-      {:uniq, "~> 0.6"}
+      {:uuid_v7, "~> 0.6"}
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]

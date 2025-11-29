@@ -68,7 +68,7 @@ defmodule B4.Writer do
         {:ok, %{write_file: write_file, file_id: file_id, file_position: file_position}}
       end
 
-    entry_id = Uniq.UUID.uuid7(:raw)
+    entry_id = UUIDv7.bingenerate()
 
     serialized_key = :erlang.term_to_binary(key)
     serialized_value = :erlang.term_to_binary(value)
@@ -100,7 +100,7 @@ defmodule B4.Writer do
         %State{tid: tid, write_file: write_file} =
           state
       ) do
-    entry_id = Uniq.UUID.uuid7(:raw)
+    entry_id = UUIDv7.bingenerate()
 
     serialized_key = :erlang.term_to_binary(key)
     serialized_value = :erlang.term_to_binary(:__b4_delete)
