@@ -1,4 +1,6 @@
 defmodule B4.KeydirOwner do
+  @moduledoc false
+
   use GenServer
 
   alias B4.{Keydir, Writer}

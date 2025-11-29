@@ -1,4 +1,6 @@
 defmodule B4.Keydir do
+  @moduledoc false
+
   def insert(tid, key, file_id, entry_size, file_position, entry_id)
       when is_integer(entry_size) and is_integer(file_position) do
     :ets.insert(

@@ -1,4 +1,6 @@
 defmodule B4.DatabasesSupervisor do
+  @moduledoc false
+
   use DynamicSupervisor
   alias B4.DatabaseSupervisor
 

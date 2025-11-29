@@ -1,4 +1,6 @@
 defmodule B4.DatabaseSupervisor do
+  @moduledoc false
+
   use Supervisor, restart: :transient
 
   alias B4.{KeydirOwner, Writer}
