@@ -8,11 +8,11 @@ defmodule B4 do
     end
   end
 
-  def insert_sync(directory, key, value) do
+  def insert(directory, key, value) do
     Writer.insert_sync(directory, key, value)
   end
 
-  def fetch_sync(directory, key) do
+  def fetch(directory, key) do
     tid = KeydirOwner.get_keydir_tid(directory)
 
     case Keydir.fetch(tid, key) do
@@ -46,7 +46,7 @@ defmodule B4 do
     end
   end
 
-  def delete_sync(directory, key) do
+  def delete(directory, key) do
     Writer.delete_sync(directory, key)
   end
 
