@@ -1,6 +1,6 @@
 # B4
 
-**TODO: Add description**
+[![Elixir CI](https://github.com/ckampfe/b4/actions/workflows/elixir.yml/badge.svg)](https://github.com/ckampfe/b4/actions/workflows/elixir.yml)
 
 ## Installation
 
