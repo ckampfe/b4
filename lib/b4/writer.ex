@@ -2,7 +2,7 @@ defmodule B4.Writer do
   @moduledoc false
 
   use GenServer
-  alias B4.{Keydir, KeydirOwner}
+  alias B4.{Files, Keydir, KeydirOwner}
 
   defmodule State do
     @enforce_keys [
@@ -39,6 +39,10 @@ defmodule B4.Writer do
 
   def set_merge_in_progress(directory, merge_in_progress?) do
     GenServer.call(name(directory), {:set_merge_in_progress, merge_in_progress?})
+  end
+
+  def write_file_id(directory) do
+    GenServer.call(name(directory), :write_file_id)
   end
 
   @impl GenServer
@@ -167,26 +171,18 @@ defmodule B4.Writer do
     {:reply, :ok, %{state | merge_in_progress?: merge_in_progress?}}
   end
 
+  def handle_call(:write_file_id, _from, %State{file_id: file_id} = state) do
+    {:reply, file_id, state}
+  end
+
   def new_write_file(directory) do
-    latest_file_id = latest_b4_file_id(directory)
+    latest_file_id = Files.latest_b4_file_id(directory)
     file_id = latest_file_id + 1
 
     {:ok, write_file} =
       :file.open(Path.join([directory, "#{file_id}.b4"]), [:binary, :raw, :append])
 
     {:ok, %{write_file: write_file, file_id: file_id}}
-  end
-
-  def latest_b4_file_id(directory) do
-    [directory, "*.b4"]
-    |> Path.join()
-    |> Path.wildcard()
-    |> Enum.map(fn path ->
-      filename_without_extension = Path.basename(path, ".b4")
-      {i, _} = Integer.parse(filename_without_extension)
-      i
-    end)
-    |> Enum.max(fn -> 0 end)
   end
 
   def delete_value do

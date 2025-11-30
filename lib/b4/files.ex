@@ -4,83 +4,127 @@ defmodule B4.Files do
   # crc32 + u128 UUIDv7 + u32 key_size + u32 value_size
   @header_size 4 + 16 + 4 + 4
   @delete_value Writer.delete_value()
+  # TODO tune this value for larger dbs?
+  # 16 KiB
+  @chunk_size 2 ** 14
 
-  def apply_file_to_keydir(path, tid, nominal_chunk_size) do
-    path
-    |> File.stream!(nominal_chunk_size)
-    |> Enum.reduce_while(%{buffer: <<>>, file_position: 0}, fn
-      chunk, %{buffer: buffer, file_position: file_position} ->
-        buffer = buffer <> chunk
+  def stream_entries(path) do
+    Stream.resource(
+      fn ->
+        {:ok, file} = :file.open(path, [:raw, :binary, :read])
+        {file, <<>>, 0}
+      end,
+      fn {file, buf, position} ->
+        case IO.binread(file, @chunk_size) do
+          data when is_binary(data) ->
+            buf = <<buf::binary, data::binary>>
+            {remaining_buf, position, entries} = parse_entries(buf, position)
+            {entries, {file, remaining_buf, position}}
 
-        case apply_chunk_to_keydir(buffer, tid, path, file_position) do
-          {:ok, :need_more_input} ->
-            {:cont,
-             %{
-               buffer: buffer,
-               file_position: file_position
-             }}
+          {:error, _e} ->
+            # TODO figure this out
+            {:halt, {file, buf, position}}
 
-          # if we get a bad crc32, the db is corrupt,
-          # we do not have the necessary information to repair,
-          # so we are done loading entries from this file
-          {:error, :bad_crc32} ->
-            {:halt, :ok}
+          :eof ->
+            # TODO figure this out
+            {:halt, {file, buf, position}}
         end
-    end)
+      end,
+      fn {file, _buf, _position} -> :file.close(file) end
+    )
   end
 
-  def apply_chunk_to_keydir(<<>>, _tid, _path, _file_position) do
-    {:ok, :need_more_input}
+  def parse_entries(buffer, position) do
+    parse_entries(buffer, position, [])
   end
 
-  def apply_chunk_to_keydir(
-        <<_crc32::binary-4, entry_id::unsigned-big-integer-128, key_size::unsigned-big-integer-32,
-          value_size::unsigned-big-integer-32, key_bytes::bytes-size(key_size),
-          value_bytes::bytes-size(value_size), rest::binary>> = buffer,
-        tid,
-        path,
-        file_position
+  def parse_entries(
+        <<
+          crc32::unsigned-big-integer-32,
+          entry_id::unsigned-big-integer-128,
+          key_size::unsigned-big-integer-32,
+          value_size::unsigned-big-integer-32,
+          key_bytes::bytes-size(key_size),
+          value_bytes::bytes-size(value_size),
+          rest::binary
+        >>,
+        position,
+        entries
       ) do
-    case :erlang.binary_to_term(value_bytes) do
-      # it's a delete, remove it from the keydir
-      @delete_value ->
-        Keydir.delete(tid, :erlang.binary_to_term(key_bytes))
+    entry_id_bytes = <<entry_id::unsigned-big-integer-128>>
+    key_size_bytes = <<key_size::unsigned-big-integer-32>>
+    value_size_bytes = <<value_size::unsigned-big-integer-32>>
 
-        apply_chunk_to_keydir(
-          rest,
-          tid,
-          path,
-          file_position + @header_size + key_size + value_size
-        )
+    challenge_crc32 =
+      :erlang.crc32([
+        entry_id_bytes,
+        key_size_bytes,
+        value_size_bytes,
+        key_bytes,
+        value_bytes
+      ])
 
-      # it's not a delete, decode the key and insert into keydir
-      _insert_value ->
-        key = :erlang.binary_to_term(key_bytes)
-        {file_id, _} = Integer.parse(Path.basename(path, ".b4"))
-
-        entry_size = @header_size + key_size + value_size
-
-        <<on_disk_crc32::32-big-integer, rest_of_header_bytes::bytes-size(@header_size - 4),
-          kv_bytes::bytes-size(key_size + value_size), _rest::binary>> =
-          buffer
-
-        challenge_crc32 = :erlang.crc32([rest_of_header_bytes, kv_bytes])
-
-        ^on_disk_crc32 = challenge_crc32
-
-        if on_disk_crc32 == challenge_crc32 do
-          true =
-            Keydir.insert(tid, key, file_id, entry_size, file_position, entry_id)
-
-          apply_chunk_to_keydir(rest, tid, path, file_position + entry_size)
-        else
-          {:error, :bad_crc32}
-        end
-    end
+    parse_entries(
+      rest,
+      position + @header_size + key_size + value_size,
+      [
+        %{
+          entry: %{
+            crc32: crc32,
+            entry_id: entry_id,
+            key_size: key_size,
+            value_size: value_size,
+            key_bytes: key_bytes,
+            value_bytes: value_bytes
+          },
+          meta: %{
+            position: position,
+            crc32_valid?: crc32 == challenge_crc32
+          }
+        }
+        | entries
+      ]
+    )
   end
 
-  def apply_chunk_to_keydir(_buffer) do
-    {:ok, :need_more_input}
+  def parse_entries(remaining_bytes, position, entries) do
+    {remaining_bytes, position, Enum.reverse(entries)}
+  end
+
+  def apply_file_to_keydir(path, tid) do
+    path
+    |> stream_entries()
+    |> Enum.map(fn %{
+                     entry: %{
+                       entry_id: entry_id,
+                       key_size: key_size,
+                       value_size: value_size,
+                       value_bytes: value_bytes,
+                       key_bytes: key_bytes
+                     },
+                     meta: %{crc32_valid?: crc32_valid?, position: position}
+                   } ->
+      value = :erlang.binary_to_term(value_bytes)
+
+      case value do
+        @delete_value ->
+          Keydir.delete(tid, :erlang.binary_to_term(key_bytes))
+
+        _insert_value ->
+          key = :erlang.binary_to_term(key_bytes)
+
+          {file_id, _} = Integer.parse(Path.basename(path, ".b4"))
+
+          entry_size = @header_size + key_size + value_size
+
+          if crc32_valid? do
+            true =
+              Keydir.insert(tid, key, file_id, entry_size, position, entry_id)
+          else
+            {:error, :bad_crc32}
+          end
+      end
+    end)
   end
 
   def read_only_database_files(directory, write_file_id) do
@@ -100,5 +144,17 @@ defmodule B4.Files do
       {b_int, _} = Path.basename(b, ".b4") |> Integer.parse()
       a_int <= b_int
     end)
+  end
+
+  def latest_b4_file_id(directory) do
+    [directory, "*.b4"]
+    |> Path.join()
+    |> Path.wildcard()
+    |> Enum.map(fn path ->
+      filename_without_extension = Path.basename(path, ".b4")
+      {i, _} = Integer.parse(filename_without_extension)
+      i
+    end)
+    |> Enum.max(fn -> 0 end)
   end
 end

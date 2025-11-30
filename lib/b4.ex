@@ -51,20 +51,9 @@ defmodule B4 do
     Keydir.keys(tid)
   end
 
-  def merge(directory) do
+  def merge(directory, timeout \\ 5_000) do
     :ok = Writer.set_merge_in_progress(directory, true)
-    # TODO do merge here
-    # two sets:
-    # old read file set
-    # new read file set
-    # iterate all keys in old read set,
-    # IFF the key is in the keydir AND IFF ID == ID in keydir:
-    #   keep the key
-    #   add key to new read file set
-    #   update keydir
-    # ELSE
-    #   skip
-    # END
+    :ok = KeydirOwner.merge(directory, timeout)
     :ok = Writer.set_merge_in_progress(directory, false)
   end
 
