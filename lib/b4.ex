@@ -21,6 +21,10 @@ defmodule B4 do
 
   Old versions are preserved on disk until you call `merge/2`,
   at which point all non-live data on disk is destroyed.
+
+  Key and value can be any Elixir terms that are safe to
+  serialize and deserialize with `:erlang.term_to_binary/1` and
+  `:erlang.binary_to_term/1`.
   """
   def insert(directory, key, value) do
     Writer.insert_sync(directory, key, value)
