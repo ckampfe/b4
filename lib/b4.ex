@@ -1,6 +1,14 @@
 defmodule B4 do
   alias B4.{DatabaseSupervisor, DatabasesSupervisor, Keydir, KeydirOwner, Writer}
 
+  @doc """
+  Create a database in `directory` with the given options.
+
+  Options:
+    - `target_file_size`: when the size of the current write file reaches this size,
+      the system will attempt to close it and start a fresh one.
+      Defaults to `2 ** 31` bytes (2 GiB).
+  """
   def new(directory, options \\ [target_file_size: 2 ** 31]) do
     case DatabasesSupervisor.start_database(directory, options) do
       {:ok, _pid} -> :ok
@@ -8,10 +16,21 @@ defmodule B4 do
     end
   end
 
+  @doc """
+  Insert `value` for `key`.
+
+  Old versions are preserved on disk until you call `merge/2`,
+  at which point all non-live data on disk is destroyed.
+  """
   def insert(directory, key, value) do
     Writer.insert_sync(directory, key, value)
   end
 
+  @doc """
+  Like `Map.fetch/2`.
+
+  Get `value` for `key`, returning `{:ok, value}`, `:not_found`, or `{:error, error}`.
+  """
   def fetch(directory, key) do
     tid = KeydirOwner.get_keydir_tid(directory)
 
@@ -42,16 +61,28 @@ defmodule B4 do
     end
   end
 
+  @doc """
+  Delete the given key from the dataset.
+  The key and its previous inserts still exist on disk
+  until you call `merge/2`.
+  """
   def delete(directory, key) do
     Writer.delete_sync(directory, key)
   end
 
+  @doc """
+  All live keys in the database.
+  """
   def keys(directory) do
     tid = KeydirOwner.get_keydir_tid(directory)
     Keydir.keys(tid)
   end
 
-  def merge(directory, timeout \\ 5_000) do
+  @doc """
+  Rewrite the current set of "read" files into a new set
+  that contains only live keys.
+  """
+  def merge(directory, timeout \\ 15_000) do
     with {_, :ok} <- {:set_merge_in_progress, Writer.set_merge_in_progress(directory, true)},
          {_, :ok} <- {:merge_action, KeydirOwner.merge(directory, timeout)},
          {_, :ok} <- {:unset_merge_in_process, Writer.set_merge_in_progress(directory, false)} do
@@ -63,6 +94,9 @@ defmodule B4 do
     end
   end
 
+  @doc """
+  Shut down the supervision tree for the given database.
+  """
   def close(directory) do
     DatabaseSupervisor.stop(directory)
   end
