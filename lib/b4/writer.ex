@@ -199,6 +199,10 @@ defmodule B4.Writer do
     <<integer::unsigned-integer-32>>
   end
 
+  def int_to_u128_bytes(integer) when is_integer(integer) do
+    <<integer::unsigned-integer-128>>
+  end
+
   def name(directory) do
     :"#{__MODULE__}-#{directory}"
   end

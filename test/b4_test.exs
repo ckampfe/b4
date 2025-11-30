@@ -121,4 +121,88 @@ defmodule B4Test do
     assert :ok = B4.delete(dir, "c")
     assert [] = Enum.sort(B4.keys(dir))
   end
+
+  test "simple merge", %{dir: dir} do
+    Enum.each(1..4, fn i ->
+      assert :ok = B4.new(dir)
+      assert :ok = B4.insert(dir, "a", i)
+      assert :ok = B4.close(dir)
+    end)
+
+    # File.ls!(dir) |> IO.inspect(label: "preexisting read files")
+    assert Enum.count(File.ls!(dir)) == 4
+
+    # Enum.each(File.ls!(dir), fn file ->
+    #   Path.join([dir, file])
+    #   |> File.stat!()
+    #   |> IO.inspect()
+    # end)
+
+    assert :ok = B4.new(dir)
+    # one more file because opening the db always creates a fresh writer file
+    assert Enum.count(File.ls!(dir)) == 5
+    # File.ls!(dir) |> IO.inspect(label: "all files pre merge")
+    assert :ok = B4.merge(dir)
+    # merging should:
+    # - create 1 new merge file (for this particular dataset)
+    # - delete the 4 previous read files
+    # - leave the current write file untouched
+    # for a total of 2 files
+    assert Enum.count(File.ls!(dir)) == 2
+    # File.ls!(dir) |> IO.inspect(label: "all files post merge")
+    assert :ok = B4.close(dir)
+
+    assert :ok = B4.new(dir)
+    # we should now have:
+    # - the new current write file
+    # - the previous write file
+    # - the merge file
+    assert Enum.count(File.ls!(dir)) == 3
+    assert ["a"] = B4.keys(dir)
+    assert {:ok, 4} = B4.fetch(dir, "a")
+  end
+
+  test "simple merge with deletes", %{dir: dir} do
+    Enum.each(1..4, fn i ->
+      assert :ok = B4.new(dir)
+      assert :ok = B4.insert(dir, "a", i)
+      assert :ok = B4.insert(dir, "b", i)
+      assert :ok = B4.close(dir)
+    end)
+
+    # File.ls!(dir) |> IO.inspect(label: "preexisting read files")
+    assert Enum.count(File.ls!(dir)) == 4
+
+    # Enum.each(File.ls!(dir), fn file ->
+    #   Path.join([dir, file])
+    #   |> File.stat!()
+    #   |> IO.inspect()
+    # end)
+
+    assert :ok = B4.new(dir)
+    assert :ok = B4.delete(dir, "a")
+
+    # one more file because opening the db always creates a fresh writer file
+    assert Enum.count(File.ls!(dir)) == 5
+    # File.ls!(dir) |> IO.inspect(label: "all files pre merge")
+    assert :ok = B4.merge(dir)
+    # merging should:
+    # - create 1 new merge file (for this particular dataset)
+    # - delete the 4 previous read files
+    # - leave the current write file untouched
+    # for a total of 2 files
+    assert Enum.count(File.ls!(dir)) == 2
+    # File.ls!(dir) |> IO.inspect(label: "all files post merge")
+    assert :ok = B4.close(dir)
+
+    assert :ok = B4.new(dir)
+    # we should now have:
+    # - the new current write file
+    # - the previous write file
+    # - the merge file
+    assert Enum.count(File.ls!(dir)) == 3
+    assert ["b"] = B4.keys(dir)
+    assert :not_found = B4.fetch(dir, "a")
+    assert {:ok, 4} = B4.fetch(dir, "b")
+  end
 end

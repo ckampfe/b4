@@ -52,9 +52,15 @@ defmodule B4 do
   end
 
   def merge(directory, timeout \\ 5_000) do
-    :ok = Writer.set_merge_in_progress(directory, true)
-    :ok = KeydirOwner.merge(directory, timeout)
-    :ok = Writer.set_merge_in_progress(directory, false)
+    with {_, :ok} <- {:set_merge_in_progress, Writer.set_merge_in_progress(directory, true)},
+         {_, :ok} <- {:merge_action, KeydirOwner.merge(directory, timeout)},
+         {_, :ok} <- {:unset_merge_in_process, Writer.set_merge_in_progress(directory, false)} do
+      :ok
+    else
+      {_action, e} ->
+        Writer.set_merge_in_progress(directory, false)
+        {:error, e}
+    end
   end
 
   def close(directory) do

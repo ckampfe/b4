@@ -28,6 +28,10 @@ defmodule B4.Keydir do
     end
   end
 
+  def contains_key?(tid, key) do
+    :ets.member(tid, key)
+  end
+
   def keys(tid) do
     tid
     |> :ets.match({:"$1", :_, :_, :_, :_})
