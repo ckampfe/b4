@@ -15,7 +15,7 @@ defmodule B4.KeydirOwner do
   end
 
   def get_keydir_tid(directory) do
-    :persistent_term.get({:tid, directory})
+    :persistent_term.get({:b4_keydir_tid, directory})
   end
 
   def merge(directory, timeout \\ 5_000) do
@@ -26,7 +26,7 @@ defmodule B4.KeydirOwner do
   def init(%{directory: directory, options: [target_file_size: target_file_size]} = _init_arg) do
     tid = Keydir.new()
 
-    :ok = :persistent_term.put({:tid, directory}, tid)
+    :ok = :persistent_term.put({:b4_keydir_tid, directory}, tid)
 
     database_files = Files.all_database_files(directory)
 
@@ -193,6 +193,25 @@ defmodule B4.KeydirOwner do
       File.rm!(old_read_only_file)
       # IO.inspect("deleted #{old_read_only_file}")
     end)
+
+    # sequence is possible:
+    # - read begins
+    # - read fetches mapping for k that points to entry in f1
+    # - merge begins
+    # - merge migrates on-disk entry for k to f2
+    # - merge updates keydir for k to point to f2
+    # - merge deletes f1
+    # - read attempts to read entry from f1
+    # - read fails (file not found, etc.)
+    #
+    # for a given k, from the POV of an observer, one of two things MUST be true:
+    # 1. if k exists in keydir: file must exist, so key must be readable
+    # 2. if k does not exist in keydir: k is :not_found
+    #
+    # for #1, reads have no side effects, so we can safely retry them:
+    # a read that is retried will return either:
+    # 1. the new, updated location of data for k (for example, after an insert or a migration)
+    # 2. :not_found, in the case that the key has been deleted in the keydir
 
     {:reply, :ok, state}
   end
