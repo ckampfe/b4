@@ -23,7 +23,7 @@ defmodule B4.KeydirOwner do
   end
 
   @impl GenServer
-  def init(%{directory: directory, options: [target_file_size: target_file_size]} = _init_arg) do
+  def init(%{directory: directory, options: options} = _init_arg) do
     tid = Keydir.new()
 
     :ok = :persistent_term.put({:b4_keydir_tid, directory}, tid)
@@ -34,7 +34,7 @@ defmodule B4.KeydirOwner do
       Files.apply_file_to_keydir(path, tid)
     end)
 
-    {:ok, %State{directory: directory, tid: tid, target_file_size: target_file_size}}
+    {:ok, %State{directory: directory, tid: tid, target_file_size: options[:target_file_size]}}
   end
 
   @impl GenServer
@@ -66,114 +66,126 @@ defmodule B4.KeydirOwner do
     {:ok, %{write_file: merge_write_file, file_id: merge_write_file_id}} =
       Writer.new_write_file(directory)
 
-    Enum.reduce(read_only_database_files, %{merge_file_ids: MapSet.new()}, fn path, outer_acc ->
-      acc_for_file =
-        path
-        |> Files.stream_entries()
-        |> Enum.reduce(
-          %{
-            merge_write_file: merge_write_file,
-            merge_write_file_id: merge_write_file_id,
-            merge_file_ids: MapSet.new(),
-            merge_write_file_position: 0
-          },
-          fn %{
-               entry: %{
-                 crc32: crc32,
-                 entry_id: on_disk_entry_id,
-                 key_size: key_size,
-                 value_size: value_size,
-                 key_bytes: key_bytes,
-                 value_bytes: value_bytes
+    merge_state =
+      Enum.reduce(read_only_database_files, %{merge_file_ids: MapSet.new()}, fn path, outer_acc ->
+        acc_for_file =
+          path
+          |> Files.stream_entries()
+          |> Enum.reduce(
+            %{
+              merge_write_file: merge_write_file,
+              merge_write_file_id: merge_write_file_id,
+              merge_file_ids: MapSet.new(),
+              merge_write_file_position: 0
+            },
+            fn %{
+                 entry: %{
+                   crc32: crc32,
+                   entry_id: on_disk_entry_id,
+                   key_size: key_size,
+                   value_size: value_size,
+                   key_bytes: key_bytes,
+                   value_bytes: value_bytes
+                 },
+                 meta: %{}
                },
-               meta: %{}
-             },
-             %{
-               merge_write_file: merge_write_file,
-               merge_write_file_id: merge_write_file_id,
-               merge_write_file_position: merge_write_file_position
-             } =
-               acc ->
-            key = :erlang.binary_to_term(key_bytes)
+               %{
+                 merge_write_file: merge_write_file,
+                 merge_write_file_id: merge_write_file_id,
+                 merge_write_file_position: merge_write_file_position
+               } =
+                 acc ->
+              key = :erlang.binary_to_term(key_bytes)
 
-            case Keydir.fetch(tid, key) do
-              {:ok, {_key, _file_id, _entry_size, _file_position, keydir_entry_id}}
-              when keydir_entry_id == on_disk_entry_id ->
-                {:ok,
-                 %{
-                   merge_write_file: merge_write_file,
-                   merge_write_file_id: merge_write_file_id,
-                   merge_write_file_position: merge_write_file_position
-                 }} =
-                  if merge_write_file_position >= target_file_size do
-                    {:ok, %{write_file: merge_write_file, file_id: merge_write_file_id}} =
-                      Writer.new_write_file(directory)
+              case Keydir.fetch(tid, key) do
+                {:ok, {_key, _file_id, _entry_size, _file_position, keydir_entry_id}}
+                when keydir_entry_id == on_disk_entry_id ->
+                  {:ok,
+                   %{
+                     merge_write_file: merge_write_file,
+                     merge_write_file_id: merge_write_file_id,
+                     merge_write_file_position: merge_write_file_position
+                   }} =
+                    if merge_write_file_position >= target_file_size do
+                      :file.close(merge_write_file)
 
-                    {:ok,
-                     %{
-                       merge_write_file: merge_write_file,
-                       merge_write_file_id: merge_write_file_id,
-                       merge_write_file_position: 0
-                     }}
-                  else
-                    {:ok,
-                     %{
-                       merge_write_file: merge_write_file,
-                       merge_write_file_id: merge_write_file_id,
-                       merge_write_file_position: merge_write_file_position
-                     }}
-                  end
+                      {:ok, %{write_file: merge_write_file, file_id: merge_write_file_id}} =
+                        Writer.new_write_file(directory)
 
-                entry =
-                  [
-                    Writer.int_to_u32_bytes(crc32),
-                    Writer.int_to_u128_bytes(on_disk_entry_id),
-                    Writer.int_to_u32_bytes(key_size),
-                    Writer.int_to_u32_bytes(value_size),
-                    key_bytes,
-                    value_bytes
-                  ]
+                      {:ok,
+                       %{
+                         merge_write_file: merge_write_file,
+                         merge_write_file_id: merge_write_file_id,
+                         merge_write_file_position: 0
+                       }}
+                    else
+                      {:ok,
+                       %{
+                         merge_write_file: merge_write_file,
+                         merge_write_file_id: merge_write_file_id,
+                         merge_write_file_position: merge_write_file_position
+                       }}
+                    end
 
-                :ok = :file.write(merge_write_file, entry)
+                  entry =
+                    [
+                      Writer.int_to_u32_bytes(crc32),
+                      Writer.int_to_u128_bytes(on_disk_entry_id),
+                      Writer.int_to_u32_bytes(key_size),
+                      Writer.int_to_u32_bytes(value_size),
+                      key_bytes,
+                      value_bytes
+                    ]
 
-                entry_size = :erlang.iolist_size(entry)
+                  # TODO should we be fsyncing here?
+                  :ok = :file.write(merge_write_file, entry)
 
-                true =
-                  Keydir.insert(
-                    tid,
-                    key,
-                    merge_write_file_id,
-                    entry_size,
-                    merge_write_file_position,
-                    on_disk_entry_id
-                  )
+                  entry_size = :erlang.iolist_size(entry)
 
-                %{
+                  true =
+                    Keydir.insert(
+                      tid,
+                      key,
+                      merge_write_file_id,
+                      entry_size,
+                      merge_write_file_position,
+                      on_disk_entry_id
+                    )
+
+                  %{
+                    acc
+                    | merge_write_file: merge_write_file,
+                      merge_write_file_id: merge_write_file_id,
+                      merge_write_file_position: acc.merge_write_file_position + entry_size,
+                      merge_file_ids: MapSet.put(acc.merge_file_ids, merge_write_file_id)
+                  }
+
+                # the entry isn't in the keydir,
+                # so it isn't live anymore,
+                # so skip it
+                :error ->
                   acc
-                  | merge_write_file: merge_write_file,
-                    merge_write_file_id: merge_write_file_id,
-                    merge_write_file_position: acc.merge_write_file_position + entry_size,
-                    merge_file_ids: MapSet.put(acc.merge_file_ids, merge_write_file_id)
-                }
 
-              # the entry isn't in the keydir,
-              # so it isn't live anymore,
-              # so skip it
-              :error ->
-                acc
-
-              # the ids for the given key didn't match,
-              # so they are old version of that key,
-              # so we ignore them
-              _ ->
-                acc
+                # the ids for the given key didn't match,
+                # so they are old version of that key,
+                # so we ignore them
+                _ ->
+                  acc
+              end
             end
-          end
-        )
+          )
 
-      Map.update!(outer_acc, :merge_file_ids, fn merge_file_ids ->
-        MapSet.union(merge_file_ids, acc_for_file[:merge_file_ids])
+        Map.update!(outer_acc, :merge_file_ids, fn merge_file_ids ->
+          MapSet.union(merge_file_ids, acc_for_file[:merge_file_ids])
+        end)
       end)
+
+    # fsync all merge files
+    Enum.each(merge_state[:merge_file_ids], fn merge_file_id ->
+      merge_file_path = Path.join([directory, "#{merge_file_id}.b4"])
+      {:ok, f} = :file.open(merge_file_path, [:raw, :binary, :read])
+      :ok = :file.sync(f)
+      :ok = :file.close(f)
     end)
 
     # |> IO.inspect(label: "merge file acc state")

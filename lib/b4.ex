@@ -8,8 +8,14 @@ defmodule B4 do
     - `target_file_size`: when the size of the current write file reaches this size,
       the system will attempt to close it and start a fresh one.
       Defaults to `2 ** 31` bytes (2 GiB).
+    - `sync_strategy`: when to flush the operating system write buffers to disk.
+      If `:every_write`, an fsync is performed after every single insert and delete.
+      This is slower, but safer in the event of e.g., power loss, whole system failure, etc.
+      If any other value, or unset, allow the operating system to flush when it wants to,
+      which is faster but not resilient to power loss, system failure, etc.
+      Defaults to `:every_write`
   """
-  def new(directory, options \\ [target_file_size: 2 ** 31]) do
+  def new(directory, options \\ [target_file_size: 2 ** 31, sync_strategy: :every_write]) do
     case DatabasesSupervisor.start_database(directory, options) do
       {:ok, _pid} -> :ok
       other -> other

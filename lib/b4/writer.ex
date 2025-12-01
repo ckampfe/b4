@@ -12,7 +12,8 @@ defmodule B4.Writer do
       :file_id,
       :file_position,
       :target_file_size,
-      :merge_in_progress?
+      :merge_in_progress?,
+      :sync_strategy
     ]
     defstruct [
       :directory,
@@ -21,7 +22,8 @@ defmodule B4.Writer do
       :file_id,
       :file_position,
       :target_file_size,
-      :merge_in_progress?
+      :merge_in_progress?,
+      :sync_strategy
     ]
   end
 
@@ -46,7 +48,7 @@ defmodule B4.Writer do
   end
 
   @impl GenServer
-  def init(%{directory: directory, options: [target_file_size: target_file_size]}) do
+  def init(%{directory: directory, options: options}) do
     {:ok, %{write_file: write_file, file_id: file_id}} = new_write_file(directory)
 
     tid = KeydirOwner.get_keydir_tid(directory)
@@ -58,8 +60,9 @@ defmodule B4.Writer do
        write_file: write_file,
        file_id: file_id,
        file_position: 0,
-       target_file_size: target_file_size,
-       merge_in_progress?: false
+       target_file_size: options[:target_file_size],
+       merge_in_progress?: false,
+       sync_strategy: options[:sync_strategy]
      }}
   end
 
@@ -74,7 +77,8 @@ defmodule B4.Writer do
           file_id: file_id,
           file_position: file_position,
           target_file_size: target_file_size,
-          merge_in_progress?: merge_in_progress?
+          merge_in_progress?: merge_in_progress?,
+          sync_strategy: sync_strategy
         } =
           state
       ) do
@@ -105,6 +109,10 @@ defmodule B4.Writer do
 
     :ok = :file.write(write_file, entry)
 
+    if sync_strategy == :every_write do
+      :ok = :file.sync(write_file)
+    end
+
     entry_size = :erlang.iolist_size(entry)
 
     true = Keydir.insert(tid, key, file_id, entry_size, file_position, entry_id)
@@ -123,7 +131,8 @@ defmodule B4.Writer do
           file_position: file_position,
           file_id: file_id,
           target_file_size: target_file_size,
-          merge_in_progress?: merge_in_progress?
+          merge_in_progress?: merge_in_progress?,
+          sync_strategy: sync_strategy
         } =
           state
       ) do
@@ -153,6 +162,10 @@ defmodule B4.Writer do
     entry = [crc32 | entry_without_crc32]
 
     :ok = :file.write(write_file, entry)
+
+    if sync_strategy == :every_write do
+      :ok = :file.sync(write_file)
+    end
 
     entry_size = :erlang.iolist_size(entry)
 
