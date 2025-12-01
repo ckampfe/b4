@@ -205,4 +205,26 @@ defmodule B4Test do
     assert :not_found = B4.fetch(dir, "a")
     assert {:ok, 4} = B4.fetch(dir, "b")
   end
+
+  test "separate databases remain independent", %{dir: dir1} do
+    dir2 = Temp.mkdir!()
+
+    assert :ok = B4.new(dir1)
+    assert :ok = B4.new(dir2)
+
+    assert :ok = B4.insert(dir1, "a", 1)
+    assert :ok = B4.insert(dir2, "b", 2)
+
+    assert ["a"] = B4.keys(dir1)
+    assert ["b"] = B4.keys(dir2)
+
+    assert {:ok, 1} = B4.fetch(dir1, "a")
+    assert {:ok, 2} = B4.fetch(dir2, "b")
+
+    assert :not_found = B4.fetch(dir1, "b")
+    assert :not_found = B4.fetch(dir2, "a")
+
+    assert :ok = B4.delete(dir1, "b")
+    assert {:ok, 2} = B4.fetch(dir2, "b")
+  end
 end
