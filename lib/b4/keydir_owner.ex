@@ -106,26 +106,13 @@ defmodule B4.KeydirOwner do
                      merge_write_file_id: merge_write_file_id,
                      merge_write_file_position: merge_write_file_position
                    }} =
-                    if merge_write_file_position >= target_file_size do
-                      :file.close(merge_write_file)
-
-                      {:ok, %{write_file: merge_write_file, file_id: merge_write_file_id}} =
-                        Writer.new_write_file(directory)
-
-                      {:ok,
-                       %{
-                         merge_write_file: merge_write_file,
-                         merge_write_file_id: merge_write_file_id,
-                         merge_write_file_position: 0
-                       }}
-                    else
-                      {:ok,
-                       %{
-                         merge_write_file: merge_write_file,
-                         merge_write_file_id: merge_write_file_id,
-                         merge_write_file_position: merge_write_file_position
-                       }}
-                    end
+                    maybe_new_merge_file(
+                      directory,
+                      merge_write_file,
+                      merge_write_file_id,
+                      merge_write_file_position,
+                      target_file_size
+                    )
 
                   entry =
                     [
@@ -226,6 +213,35 @@ defmodule B4.KeydirOwner do
     # 2. :not_found, in the case that the key has been deleted in the keydir
 
     {:reply, :ok, state}
+  end
+
+  def maybe_new_merge_file(
+        directory,
+        merge_write_file,
+        merge_write_file_id,
+        merge_write_file_position,
+        target_file_size
+      ) do
+    if merge_write_file_position >= target_file_size do
+      :file.close(merge_write_file)
+
+      {:ok, %{write_file: merge_write_file, file_id: merge_write_file_id}} =
+        Writer.new_write_file(directory)
+
+      {:ok,
+       %{
+         merge_write_file: merge_write_file,
+         merge_write_file_id: merge_write_file_id,
+         merge_write_file_position: 0
+       }}
+    else
+      {:ok,
+       %{
+         merge_write_file: merge_write_file,
+         merge_write_file_id: merge_write_file_id,
+         merge_write_file_position: merge_write_file_position
+       }}
+    end
   end
 
   def name(directory) do
