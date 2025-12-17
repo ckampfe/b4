@@ -61,7 +61,7 @@ defmodule B4.Files do
              <<
                header_bytes::binary-28,
                rest::binary
-             >>}, _} <- {:read, :file.pread(file, file_position, entry_size), file},
+             >>}, _} <- {:file_read, :file.pread(file, file_position, entry_size), file},
            <<disk_crc32::integer-big-32, rest_of_header_bytes::binary-24>> =
              header_bytes,
            <<_id::integer-big-128, key_size::integer-big-32, value_size::integer-big-32>> =
